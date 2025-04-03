@@ -1,0 +1,148 @@
+﻿@page "/"
+
+@inject IJSRuntime JS
+
+<h2 class="header">Daily Task Planner</h2>
+
+<div class="task-container">
+    <input @bind="LibraryName" class="library-input" placeholder="Enter Task Library Name" />
+
+    <textarea @bind="TaskInput" class="task-input" placeholder="Enter tasks, one per line..."></textarea>
+
+    <!-- Create Task Library Button -->
+    <button @onclick="CreateTaskLibrary" class="create-library-button">Create Task Library</button>
+
+    <!-- Task Libraries Dropdown -->
+    <select @bind="SelectedLibraryName" class="task-library-select">
+        <option value="">Select Task Library</option>
+        @foreach (var library in TaskLibraries)
+        {
+            <option value="@library.Name">@library.Name</option>
+        }
+    </select>
+
+    <!-- Task List for Selected Library -->
+    <div class="task-list">
+        @if (SelectedLibrary != null)
+        {
+            <ol>
+                @foreach (var task in SelectedLibrary.Tasks)
+                {
+                    <li @onclick="() => SelectTask(task)"
+                        class="task-item @(task == SelectedTask ? "selected-task" : "")">
+                        @task
+                    </li>
+                }
+            </ol>
+        }
+    </div>
+
+    <!-- Delete Task Button -->
+    <button @onclick="DeleteTask" class="delete-button">Delete Task</button>
+</div>
+
+@code {
+    private string TaskInput { get; set; } = "";
+    private string LibraryName { get; set; } = "";
+    private string SelectedTask { get; set; } = "";
+    private string SelectedLibraryName { get; set; } // Bind to library name instead of whole TaskLibrary
+    private TaskLibrary SelectedLibrary => TaskLibraries.FirstOrDefault(l => l.Name == SelectedLibraryName); // Get library by name
+    private List<TaskLibrary> TaskLibraries { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTaskLibrariesFromLocalStorage();
+    }
+
+    private async Task CreateTaskLibrary()
+    {
+        if (string.IsNullOrWhiteSpace(LibraryName))
+        {
+            // If library name is empty, show a prompt to the user
+            await JS.InvokeVoidAsync("alert", "Please enter a library name before creating.");
+            return;
+        }
+
+        // Organize tasks when creating a library
+        var organizedTasks = TaskInput
+            .Split("\n", StringSplitOptions.RemoveEmptyEntries)
+            .Select(task => task.Trim())
+            .Where(task => !string.IsNullOrWhiteSpace(task))
+            .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Create a new TaskLibrary object and add it to the list
+        var newLibrary = new TaskLibrary
+            {
+                Name = LibraryName,
+                Tasks = organizedTasks
+            };
+
+        // Add new library to the list of Task Libraries
+        TaskLibraries.Add(newLibrary);
+
+        // Save task libraries to Local Storage
+        await SaveTaskLibrariesToLocalStorage();
+
+        // Reset the input fields after creating the library
+        TaskInput = "";
+        LibraryName = "";
+        SelectedLibraryName = newLibrary.Name;  // Set newly created library name as selected
+        SelectedTask = ""; // Clear selected task
+    }
+
+    private void SelectTask(string task)
+    {
+        // Mark a task as selected when clicked
+        SelectedTask = task;
+    }
+
+    private async Task DeleteTask()
+    {
+        if (SelectedLibrary == null || string.IsNullOrWhiteSpace(SelectedTask))
+        {
+            // Show a prompt if no task is selected
+            await JS.InvokeVoidAsync("alert", "Please select a task to delete from the selected library.");
+            return;
+        }
+
+        // Remove the selected task from the tasks in the selected library
+        SelectedLibrary.Tasks.Remove(SelectedTask);
+
+        // If the library becomes empty after deletion, remove the library itself
+        if (!SelectedLibrary.Tasks.Any())
+        {
+            TaskLibraries.Remove(SelectedLibrary);
+        }
+
+        // Save updated task libraries to Local Storage
+        await SaveTaskLibrariesToLocalStorage();
+
+        // Clear the selected task after deletion
+        SelectedTask = "";
+    }
+
+    private async Task SaveTaskLibrariesToLocalStorage()
+    {
+        // Save task libraries to local storage
+        var json = System.Text.Json.JsonSerializer.Serialize(TaskLibraries);
+        await JS.InvokeVoidAsync("localStorage.setItem", "taskLibraries", json);
+    }
+
+    private async Task LoadTaskLibrariesFromLocalStorage()
+    {
+        // Load task libraries from local storage
+        var storedLibrariesJson = await JS.InvokeAsync<string>("localStorage.getItem", "taskLibraries");
+
+        if (!string.IsNullOrEmpty(storedLibrariesJson))
+        {
+            TaskLibraries = System.Text.Json.JsonSerializer.Deserialize<List<TaskLibrary>>(storedLibrariesJson);
+        }
+    }
+
+    public class TaskLibrary
+    {
+        public string Name { get; set; }
+        public List<string> Tasks { get; set; } = new();
+    }
+}
